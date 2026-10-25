@@ -257,7 +257,8 @@ export async function listHistoryCache(dir) {
     if (!m) continue;
     try {
       const data = JSON.parse(await readFile(`${dir}/${f}`, "utf8"));
-      out.push({ coin: m[1], date: m[2], currencies: Object.keys(data || {}).sort() });
+      if (!data || typeof data !== "object" || Array.isArray(data)) continue;
+      out.push({ coin: m[1], date: m[2], currencies: Object.keys(data).sort() });
     } catch {
       continue;
     }

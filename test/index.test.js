@@ -123,6 +123,17 @@ test("fetchPrices normalizes currency case", async () => {
   assert.ok(urlSeen.includes("vs_currencies=USD%2CEur") === false || urlSeen.toLowerCase().includes("vs_currencies=usd%2ceur") || urlSeen.toLowerCase().includes("vs_currencies=usd,eur"));
 });
 
+test("listHistoryCache skips non-object JSON payloads", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "crypto-price-shape-"));
+  await writeHistoryCache(dir, "bitcoin", "2026-10-26", { usd: 42000 });
+  await fs.writeFile(`${dir}/ethereum-2026-10-26.json`, "[1,2,3]");
+  await fs.writeFile(`${dir}/dogecoin-2026-10-26.json`, '"just a string"');
+  const entries = await listHistoryCache(dir);
+  assert.deepEqual(entries, [
+    { coin: "bitcoin", date: "2026-10-26", currencies: ["usd"] },
+  ]);
+});
+
 test("listHistoryCache enumerates stored entries", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "crypto-price-list-"));
   assert.deepEqual(await listHistoryCache(dir), []);
