@@ -22,6 +22,7 @@ Options:
   --count=N           Stop after N refreshes (for scripts/cron)
   --dump-cache        List cached historical prices and exit
   --json              Machine-readable JSON output
+  --compact           Compact JSON (no indentation)
   -h, --help          Show this help
 
 Environment:
@@ -38,6 +39,7 @@ Examples:
 }
 
 const json = args.includes("--json");
+const compact = args.includes("--compact");
 const dateArg = args.find((a) => a.startsWith("--date="));
 const date = dateArg ? dateArg.slice("--date=".length) : null;
 const watchArg = args.find((a) => a === "--watch" || a.startsWith("--watch=") || a === "--interval" || a.startsWith("--interval="));
@@ -55,7 +57,7 @@ async function showOnce() {
       data[coin] = await fetchHistoricalPrice(coin, date, vs, fetch, opts);
     }
     if (json) {
-      console.log(formatJson(data));
+      console.log(formatJson(data, !compact));
     } else {
       for (const [coin, prices] of Object.entries(data)) {
         console.log(`${coin} on ${date}: ` + vs.map((c) => `${c.toUpperCase()}: ${prices[c] ?? "n/a"}`).join("  "));
@@ -63,7 +65,7 @@ async function showOnce() {
     }
   } else {
     const data = await fetchPrices(coins, vs, fetch, opts);
-    console.log(json ? formatJson(data) : formatPrices(data, vs));
+    console.log(json ? formatJson(data, !compact) : formatPrices(data, vs));
   }
 }
 
@@ -71,7 +73,7 @@ try {
   if (args.includes("--dump-cache")) {
     const entries = await listHistoryCache(defaultHistoryCacheDir());
     if (json) {
-      console.log(formatJson(entries));
+      console.log(formatJson(entries, !compact));
     } else if (entries.length === 0) {
       console.log("history cache is empty");
     } else {

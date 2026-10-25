@@ -5,6 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { fetchPrices, formatPrices, formatJson, clearCache, fetchHistoricalPrice, resolveCoin, fetchWithRetry, watchPrices, timestampHeader, validateFlags, parsePositiveInt, readHistoryCache, writeHistoryCache, listHistoryCache } from "../src/index.js";
 
+test("formatJson compact mode", () => {
+  const data = { a: 1 };
+  assert.equal(formatJson(data, false), '{"a":1}');
+  assert.match(formatJson(data, true), /\n/);
+});
+
 test("formatPrices marks missing currencies as n/a", () => {
   assert.equal(formatPrices({ bitcoin: { usd: 42000 } }, ["usd", "eur"]), "bitcoin: USD: 42000  EUR: n/a");
 });
