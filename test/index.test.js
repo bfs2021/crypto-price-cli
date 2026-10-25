@@ -7,15 +7,71 @@ import { fetchPrices, formatPrices, formatJson, clearCache, fetchHistoricalPrice
 
 test("watchPrices respects jitter=false", async () => {
   const sleeps = [];
-  await watchPrices({ fetchOnce: async () => {}, intervalMs: 1000, maxTicks: 2, sleepImpl: (ms) => { sleeps.push(ms); return Promise.resolve(); }, jitter: false });
+  let now = 0;
+  await watchPrices({ fetchOnce: async () => {}, intervalMs: 1000, maxTicks: 2, nowImpl: () => now, sleepImpl: (ms) => { sleeps.push(ms); now += ms; return Promise.resolve(); }, jitter: false });
   assert.deepEqual(sleeps, [1000]);
 });
 
 test("watchPrices with jitter stays within range", async () => {
   const sleeps = [];
-  await watchPrices({ fetchOnce: async () => {}, intervalMs: 1000, maxTicks: 3, sleepImpl: (ms) => { sleeps.push(ms); return Promise.resolve(); }, jitter: true });
+  let now = 0;
+  await watchPrices({ fetchOnce: async () => {}, intervalMs: 1000, maxTicks: 3, nowImpl: () => now, sleepImpl: (ms) => { sleeps.push(ms); now += ms; return Promise.resolve(); }, jitter: true });
   assert.equal(sleeps.length, 2);
   for (const s of sleeps) assert.ok(s >= 800 && s <= 1200, `out of range: ${s}`);
+});
+
+test("watchPrices keeps a deadline with an injected clock", async () => {
+  let now = 0;
+  const sleeps = [];
+  const ticks = [];
+  await watchPrices({
+    fetchOnce: async () => {},
+    intervalMs: 1000,
+    maxTicks: 4,
+    jitter: false,
+    nowImpl: () => now,
+    sleepImpl: async (ms) => { sleeps.push(ms); now += ms; },
+    onTick: (tick, info) => ticks.push([tick, info.oversleptMs]),
+  });
+  assert.deepEqual(sleeps, [1000, 1000, 1000]);
+  assert.deepEqual(ticks, [[1, 0], [2, 0], [3, 0], [4, 0]]);
+});
+
+test("watchPrices reports an oversleep once and fires no catch-up ticks", async () => {
+  let now = 0;
+  let suspendOnce = true;
+  const sleeps = [];
+  const ticks = [];
+  const logged = [];
+  const originalError = console.error;
+  console.error = (line) => logged.push(String(line));
+  try {
+    await watchPrices({
+      fetchOnce: async () => {},
+      intervalMs: 1000,
+      maxTicks: 3,
+      jitter: false,
+      nowImpl: () => now,
+      sleepImpl: async (ms) => {
+        sleeps.push(ms);
+        now += ms + (suspendOnce ? 5000 : 0);
+        suspendOnce = false;
+      },
+      onTick: (tick, info) => ticks.push([tick, info.oversleptMs]),
+    });
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(ticks, [[1, 0], [2, 5000], [3, 0]]);
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /\[watch\] overslept 5s \(system suspend\?\)/);
+  // The next sleep is a full interval again: no burst of catch-up ticks.
+  assert.deepEqual(sleeps, [1000, 1000]);
+});
+
+test("timestampHeader can note an overslept tick", () => {
+  assert.equal(timestampHeader(new Date("2026-10-24T15:04:05Z")), "[2026-10-24 15:04:05]");
+  assert.equal(timestampHeader(new Date("2026-10-24T15:04:05Z"), 5000), "[2026-10-24 15:04:05] (+5s overslept)");
 });
 
 test("fetchWithRetry caps Retry-After and warns", async () => {
