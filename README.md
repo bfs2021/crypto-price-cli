@@ -5,7 +5,7 @@ Lightweight CLI to fetch cryptocurrency prices from CoinGecko (no API key).
 ## Usage
 
 ```bash
-npx crypto-price-cli bitcoin,ethereum usd,eur
+npx @yunaremaia/crypto-price-cli bitcoin,ethereum usd,eur
 # or after install
 crypto-price bitcoin usd
 ```

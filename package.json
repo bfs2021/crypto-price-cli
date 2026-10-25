@@ -1,5 +1,5 @@
 {
-  "name": "crypto-price-cli",
+  "name": "@yunaremaia/crypto-price-cli",
   "version": "0.1.0",
   "description": "Lightweight CLI to fetch cryptocurrency prices (CoinGecko, no API key).",
   "type": "module",

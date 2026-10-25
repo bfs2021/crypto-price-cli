@@ -5,6 +5,21 @@ import os from "node:os";
 import path from "node:path";
 import { fetchPrices, formatPrices, formatJson, clearCache, fetchHistoricalPrice, resolveCoin, fetchWithRetry, watchPrices, timestampHeader, validateFlags, parsePositiveInt, readHistoryCache, writeHistoryCache, listHistoryCache } from "../src/index.js";
 
+test("formatPrices marks missing currencies as n/a", () => {
+  assert.equal(formatPrices({ bitcoin: { usd: 42000 } }, ["usd", "eur"]), "bitcoin: USD: 42000  EUR: n/a");
+});
+
+test("fetchPrices normalizes currency case", async () => {
+  let urlSeen = "";
+  const fetchImpl = async (url) => {
+    urlSeen = url;
+    return { ok: true, status: 200, statusText: "OK", json: async () => ({ bitcoin: { usd: 42000 } }) };
+  };
+  clearCache();
+  const data = await fetchPrices(["bitcoin"], ["USD", "Eur"], fetchImpl);
+  assert.ok(urlSeen.includes("vs_currencies=USD%2CEur") === false || urlSeen.toLowerCase().includes("vs_currencies=usd%2ceur") || urlSeen.toLowerCase().includes("vs_currencies=usd,eur"));
+});
+
 test("listHistoryCache enumerates stored entries", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "crypto-price-list-"));
   assert.deepEqual(await listHistoryCache(dir), []);

@@ -105,6 +105,8 @@ export async function fetchPrices(ids, vs = ["usd"], fetchImpl = fetch, options 
     throw new Error("ids must be a non-empty array");
   }
   ids = ids.map(resolveCoin);
+  vs = vs.map((c) => String(c).trim().toLowerCase()).filter(Boolean);
+  if (vs.length === 0) vs = ["usd"];
   const ttl = typeof options.cacheTtlMs === "number" ? options.cacheTtlMs : 60000;
   const key = cacheKey(ids, vs);
   const cached = cache.get(key);
@@ -137,7 +139,11 @@ export function clearCache() {
 export function formatPrices(data, vs = ["usd"]) {
   const lines = [];
   for (const [coin, prices] of Object.entries(data)) {
-    const parts = vs.map((c) => `${c.toUpperCase()}: ${prices[c]}`).join("  ");
+    const parts = vs.map((c) => {
+      const key = String(c).toLowerCase();
+      const val = prices && prices[key] !== undefined ? prices[key] : "n/a";
+      return `${String(c).toUpperCase()}: ${val}`;
+    }).join("  ");
     lines.push(`${coin}: ${parts}`);
   }
   return lines.join("\n");
