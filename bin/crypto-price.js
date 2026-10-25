@@ -96,8 +96,8 @@ try {
     process.once("SIGINT", () => controller.abort());
     const { watchPrices, timestampHeader } = await import("../src/index.js");
     await watchPrices({
-      fetchOnce: () => {
-        if (!json) console.log(timestampHeader());
+      fetchOnce: (_tick, info = {}) => {
+        if (!json) console.log(timestampHeader(new Date(), info.oversleptMs));
         return showOnce();
       },
       intervalMs: watchSecs * 1000,

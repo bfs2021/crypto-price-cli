@@ -74,9 +74,14 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
 
 /**
  * Repeatedly run fetchOnce every intervalMs until the signal aborts or
- * maxTicks is reached. sleepImpl is injectable so tests run instantly.
+ * maxTicks is reached. The schedule is a deadline, not a fixed sleep: each
+ * tick sleeps only the time left until it is due, so timer drift does not
+ * accumulate. When a tick starts more than one interval late (a laptop
+ * suspend, a throttled container) the gap is reported once and the schedule
+ * restarts from now instead of firing catch-up ticks.
+ * sleepImpl and nowImpl are injectable so tests run instantly.
  */
-export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signal, maxTicks = Infinity, sleepImpl = sleep, jitter = true }) {
+export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signal, maxTicks = Infinity, sleepImpl = sleep, nowImpl = Date.now, jitter = true }) {
   if (typeof fetchOnce !== "function") {
     throw new Error("fetchOnce must be a function");
   }
@@ -84,16 +89,32 @@ export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signa
     throw new Error("intervalMs must be positive");
   }
   let tick = 0;
+  let deadline = nowImpl();
+  let oversleepReported = false;
   while (!signal?.aborted && tick < maxTicks) {
+    const oversleptMs = Math.max(0, nowImpl() - deadline);
     tick++;
-    await fetchOnce(tick);
-    if (onTick) onTick(tick);
+    const info = { oversleptMs };
+    await fetchOnce(tick, info);
+    if (onTick) onTick(tick, info);
     if (tick >= maxTicks || signal?.aborted) break;
     let wait = intervalMs;
     if (jitter) {
       wait = Math.round(intervalMs * (0.8 + Math.random() * 0.4));
     }
-    await sleepImpl(wait);
+    deadline += wait;
+    if (oversleptMs > intervalMs) {
+      if (!oversleepReported) {
+        console.error(`[watch] overslept ${Math.round(oversleptMs / 1000)}s (system suspend?)`);
+        oversleepReported = true;
+      }
+      // Do not fire catch-up ticks; start the next interval from now.
+      deadline = nowImpl() + wait;
+    } else {
+      oversleepReported = false;
+    }
+    const delay = Math.max(0, Math.ceil(deadline - nowImpl()));
+    await sleepImpl(delay);
   }
 }
 
@@ -248,9 +269,10 @@ export async function listHistoryCache(dir) {
  * Render a UTC timestamp header for --watch refreshes.
  * @param {Date} [now=new Date()]
  */
-export function timestampHeader(now = new Date()) {
+export function timestampHeader(now = new Date(), oversleptMs = 0) {
   const iso = now.toISOString();
-  return `[${iso.slice(0, 10)} ${iso.slice(11, 19)}]`;
+  const header = `[${iso.slice(0, 10)} ${iso.slice(11, 19)}]`;
+  return oversleptMs > 0 ? `${header} (+${Math.round(oversleptMs / 1000)}s overslept)` : header;
 }
 
 /**
