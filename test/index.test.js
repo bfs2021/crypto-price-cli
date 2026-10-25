@@ -68,6 +68,19 @@ test("watchPrices reports an oversleep once and fires no catch-up ticks", async 
   // The next sleep is a full interval again: no burst of catch-up ticks.
   assert.deepEqual(sleeps, [1000, 1000]);
 });
+test("watchPrices completes despite a backwards clock jump", async () => {
+  const seq = [1000, 900, 800, 700];
+  let i = 0;
+  const nowImpl = () => seq[Math.min(i++, seq.length - 1)];
+  const sleepCalls = [];
+  const sleepImpl = async (ms) => { sleepCalls.push(ms); };
+  const ticks = [];
+  await watchPrices({ fetchOnce: async (t) => { ticks.push(t); }, intervalMs: 1000, maxTicks: 3, sleepImpl, nowImpl, jitter: false });
+  assert.deepEqual(ticks, [1, 2, 3]);
+  assert.ok(sleepCalls.every((ms) => ms <= 1000), `unexpected delay: ${sleepCalls}`);
+});
+
+
 
 test("timestampHeader can note an overslept tick", () => {
   assert.equal(timestampHeader(new Date("2026-10-24T15:04:05Z")), "[2026-10-24 15:04:05]");

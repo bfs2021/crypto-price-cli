@@ -92,7 +92,12 @@ export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signa
   let deadline = nowImpl();
   let oversleepReported = false;
   while (!signal?.aborted && tick < maxTicks) {
-    const oversleptMs = Math.max(0, nowImpl() - deadline);
+    const now = nowImpl();
+    const oversleptMs = Math.max(0, now - deadline);
+    // Backwards clock jump: pretend nothing happened, restart the interval.
+    if (now < deadline) {
+      deadline = now;
+    }
     tick++;
     const info = { oversleptMs };
     await fetchOnce(tick, info);
@@ -101,6 +106,11 @@ export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signa
     let wait = intervalMs;
     if (jitter) {
       wait = Math.round(intervalMs * (0.8 + Math.random() * 0.4));
+    }
+    // Backwards clock jump: restart the interval from now instead of
+    // scheduling a huge delay.
+    if (nowImpl() < deadline) {
+      deadline = nowImpl();
     }
     deadline += wait;
     if (oversleptMs > intervalMs) {
