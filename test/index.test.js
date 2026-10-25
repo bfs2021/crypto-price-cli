@@ -5,6 +5,19 @@ import os from "node:os";
 import path from "node:path";
 import { fetchPrices, formatPrices, formatJson, clearCache, fetchHistoricalPrice, resolveCoin, fetchWithRetry, watchPrices, timestampHeader, validateFlags, parsePositiveInt, readHistoryCache, writeHistoryCache, listHistoryCache } from "../src/index.js";
 
+test("watchPrices respects jitter=false", async () => {
+  const sleeps = [];
+  await watchPrices({ fetchOnce: async () => {}, intervalMs: 1000, maxTicks: 2, sleepImpl: (ms) => { sleeps.push(ms); return Promise.resolve(); }, jitter: false });
+  assert.deepEqual(sleeps, [1000]);
+});
+
+test("watchPrices with jitter stays within range", async () => {
+  const sleeps = [];
+  await watchPrices({ fetchOnce: async () => {}, intervalMs: 1000, maxTicks: 3, sleepImpl: (ms) => { sleeps.push(ms); return Promise.resolve(); }, jitter: true });
+  assert.equal(sleeps.length, 2);
+  for (const s of sleeps) assert.ok(s >= 800 && s <= 1200, `out of range: ${s}`);
+});
+
 test("fetchWithRetry caps Retry-After and warns", async () => {
   let n = 0;
   const fetchImpl = async () => {

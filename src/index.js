@@ -76,7 +76,7 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
  * Repeatedly run fetchOnce every intervalMs until the signal aborts or
  * maxTicks is reached. sleepImpl is injectable so tests run instantly.
  */
-export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signal, maxTicks = Infinity, sleepImpl = sleep }) {
+export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signal, maxTicks = Infinity, sleepImpl = sleep, jitter = true }) {
   if (typeof fetchOnce !== "function") {
     throw new Error("fetchOnce must be a function");
   }
@@ -89,7 +89,11 @@ export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signa
     await fetchOnce(tick);
     if (onTick) onTick(tick);
     if (tick >= maxTicks || signal?.aborted) break;
-    await sleepImpl(intervalMs);
+    let wait = intervalMs;
+    if (jitter) {
+      wait = Math.round(intervalMs * (0.8 + Math.random() * 0.4));
+    }
+    await sleepImpl(wait);
   }
 }
 
