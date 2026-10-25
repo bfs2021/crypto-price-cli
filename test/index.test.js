@@ -5,6 +5,34 @@ import os from "node:os";
 import path from "node:path";
 import { fetchPrices, formatPrices, formatJson, clearCache, fetchHistoricalPrice, resolveCoin, fetchWithRetry, watchPrices, timestampHeader, validateFlags, parsePositiveInt, readHistoryCache, writeHistoryCache, listHistoryCache } from "../src/index.js";
 
+test("fetchWithRetry caps Retry-After and warns", async () => {
+  let n = 0;
+  const fetchImpl = async () => {
+    n++;
+    if (n === 1) return { ok: false, status: 429, statusText: "Too Many", headers: { get: () => "120" }, json: async () => ({}) };
+    return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
+  };
+  const warns = [];
+  const sleeps = [];
+  await fetchWithRetry(fetchImpl, "u", {}, { sleepImpl: (ms) => { sleeps.push(ms); return Promise.resolve(); }, maxRetryMs: 30000, warn: (m) => warns.push(m) });
+  assert.deepEqual(sleeps, [30000]);
+  assert.equal(warns.length, 1);
+});
+
+test("fetchWithRetry respects maxRetryMs without cap warning", async () => {
+  let n = 0;
+  const fetchImpl = async () => {
+    n++;
+    if (n === 1) return { ok: false, status: 429, statusText: "Too Many", headers: { get: () => "2" }, json: async () => ({}) };
+    return { ok: true, status: 200, statusText: "OK", json: async () => ({}) };
+  };
+  const warns = [];
+  const sleeps = [];
+  await fetchWithRetry(fetchImpl, "u", {}, { sleepImpl: (ms) => { sleeps.push(ms); return Promise.resolve(); }, maxRetryMs: 30000, warn: (m) => warns.push(m) });
+  assert.deepEqual(sleeps, [2000]);
+  assert.equal(warns.length, 0);
+});
+
 test("formatJson compact mode", () => {
   const data = { a: 1 };
   assert.equal(formatJson(data, false), '{"a":1}');

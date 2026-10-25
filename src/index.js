@@ -34,6 +34,8 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
   const retries = typeof options.retries === "number" ? options.retries : 3;
   const baseMs = typeof options.retryBaseMs === "number" ? options.retryBaseMs : 1000;
   const sleepImpl = options.sleepImpl || sleep;
+  const maxRetryMs = typeof options.maxRetryMs === "number" ? options.maxRetryMs : 60000;
+  const warn = typeof options.warn === "function" ? options.warn : null;
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     let res;
@@ -55,7 +57,15 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
       : null;
     if (retryAfter) {
       const secs = Number(retryAfter);
-      if (Number.isFinite(secs) && secs >= 0) waitMs = Math.min(secs * 1000, 60000);
+      if (Number.isFinite(secs) && secs >= 0) {
+        const requested = secs * 1000;
+        if (requested > maxRetryMs) {
+          if (warn) warn(`Retry-After ${secs}s exceeds cap ${maxRetryMs}ms; capping.`);
+          waitMs = maxRetryMs;
+        } else {
+          waitMs = requested;
+        }
+      }
     }
     await sleepImpl(waitMs);
   }
