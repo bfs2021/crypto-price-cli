@@ -223,7 +223,10 @@ export async function fetchPrices(ids, vs = ["usd"], fetchImpl = fetch, options 
   if (!res.ok) {
     throw new Error(scrubSecret(`CoinGecko request failed: ${res.status} ${res.statusText}`, options.apiKey));
   }
-  const data = await res.json();
+  const maxBytes = typeof options.maxResponseBytes === "number" ? options.maxResponseBytes : 1024 * 1024;
+  const text = typeof res.text === "function" ? await res.text() : JSON.stringify(await res.json());
+  if (text.length > maxBytes) throw new Error("CoinGecko response too large");
+  const data = JSON.parse(text);
   if (!data || typeof data !== "object") {
     throw new Error("Unexpected response from CoinGecko");
   }
@@ -379,7 +382,10 @@ export async function fetchHistoricalPrice(coin, dateStr, vs = ["usd"], fetchImp
   if (!res.ok) {
     throw new Error(scrubSecret(`CoinGecko request failed: ${res.status} ${res.statusText}`, options && options.apiKey));
   }
-  const data = await res.json();
+  const maxBytes = typeof (options && options.maxResponseBytes) === "number" ? (options && options.maxResponseBytes) : 1024 * 1024;
+  const text2 = typeof res.text === "function" ? await res.text() : JSON.stringify(await res.json());
+  if (text2.length > maxBytes) throw new Error("CoinGecko response too large");
+  const data = JSON.parse(text2);
   const prices = data && data.market_data && data.market_data.current_price;
   if (!prices || typeof prices !== "object") {
     throw new Error("No market data for that date");

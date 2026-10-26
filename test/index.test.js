@@ -522,3 +522,29 @@ test("fetchWithRetry aborts on timeout", async () => {
     /timed out|abort/i
   );
 });
+
+test("fetchPrices rejects oversized JSON bodies", async () => {
+  const huge = "x".repeat(2 * 1024 * 1024);
+  const fetchImpl = async () => ({
+    ok: true, status: 200, statusText: "OK",
+    headers: { get: () => null },
+    json: async () => ({ bitcoin: { usd: 1, _pad: huge } }),
+  });
+  clearCache();
+  const err = await fetchPrices(["bitcoin"], ["usd"], fetchImpl, { cacheTtlMs: 0, maxResponseBytes: 1024 }).catch((e) => e);
+  assert.ok(err instanceof Error);
+  assert.match(err.message, /response too large/i);
+});
+
+test("fetchHistoricalPrice rejects oversized JSON bodies", async () => {
+  const huge = "x".repeat(2 * 1024 * 1024);
+  const fetchImpl = async () => ({
+    ok: true, status: 200, statusText: "OK",
+    headers: { get: () => null },
+    json: async () => ({ market_data: { current_price: { usd: 1 }, _pad: huge } }),
+  });
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "crypto-hist-big-"));
+  const err = await fetchHistoricalPrice("bitcoin", "2026-10-26", ["usd"], fetchImpl, { cacheDir: dir, maxResponseBytes: 1024 }).catch((e) => e);
+  assert.ok(err instanceof Error);
+  assert.match(err.message, /response too large/i);
+});
