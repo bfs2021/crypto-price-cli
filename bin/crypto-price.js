@@ -61,7 +61,20 @@ const compact = args.includes("--compact");
 const dateArg = args.find((a) => a.startsWith("--date="));
 const date = dateArg ? dateArg.slice("--date=".length) : null;
 const watchArg = args.find((a) => a === "--watch" || a.startsWith("--watch=") || a === "--interval" || a.startsWith("--interval="));
-const watchSecs = watchArg ? parsePositiveInt(watchArg.split("=")[1] || "30", 30) : 0;
+let watchSecs = 0;
+if (watchArg) {
+  const raw = watchArg.includes("=") ? watchArg.split("=").slice(1).join("=").trim() : "";
+  if (raw === "") {
+    watchSecs = 30;
+  } else {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) {
+      console.error("error: --watch needs a positive number of seconds");
+      process.exit(2);
+    }
+    watchSecs = Math.floor(n);
+  }
+}
 const countArg = args.find((a) => a.startsWith("--count="));
 const maxTicks = countArg ? parsePositiveInt(countArg.split("=")[1], 0) : 0;
 const maxErrorsArg = args.find((a) => a.startsWith("--max-errors="));
