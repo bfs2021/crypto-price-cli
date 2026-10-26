@@ -84,10 +84,18 @@ export async function loadAlertState(filePath = defaultAlertStateFile(), ttlHour
 }
 
 export async function saveAlertState(filePath = defaultAlertStateFile(), stateMap = {}, now = Date.now()) {
-  const { mkdir, writeFile, rename } = await import("node:fs/promises");
+  const { mkdir, writeFile, rename, lstat } = await import("node:fs/promises");
   const { dirname, join } = await import("node:path");
   const dir = dirname(filePath);
+  try {
+    const st = await lstat(dir);
+    if (st.isSymbolicLink()) throw new Error("refusing to write through a symlinked cache dir");
+  } catch (err) {
+    if (err && err.code !== "ENOENT") throw err;
+  }
   await mkdir(dir, { recursive: true });
+  const st2 = await lstat(dir);
+  if (st2.isSymbolicLink()) throw new Error("refusing to write through a symlinked cache dir");
   const tmpFile = join(dir, `.alerts-state-${process.pid}-${now}-${Math.random().toString(36).slice(2)}.tmp`);
   await writeFile(tmpFile, JSON.stringify(stateMap, null, 2), "utf8");
   await rename(tmpFile, filePath);
