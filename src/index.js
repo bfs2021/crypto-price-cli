@@ -81,7 +81,7 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
  * restarts from now instead of firing catch-up ticks.
  * sleepImpl and nowImpl are injectable so tests run instantly.
  */
-export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signal, maxTicks = Infinity, sleepImpl = sleep, nowImpl = Date.now, jitter = true }) {
+export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signal, maxTicks = Infinity, sleepImpl = sleep, nowImpl = Date.now, jitter = true, maxErrors = 3, retryAttempts = 2, retryBaseMs = 1000, onError }) {
   if (typeof fetchOnce !== "function") {
     throw new Error("fetchOnce must be a function");
   }
@@ -91,24 +91,44 @@ export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signa
   let tick = 0;
   let deadline = nowImpl();
   let oversleepReported = false;
+  let consecutiveErrors = 0;
   while (!signal?.aborted && tick < maxTicks) {
     const now = nowImpl();
     const oversleptMs = Math.max(0, now - deadline);
-    // Backwards clock jump: pretend nothing happened, restart the interval.
     if (now < deadline) {
       deadline = now;
     }
     tick++;
     const info = { oversleptMs };
-    await fetchOnce(tick, info);
-    if (onTick) onTick(tick, info);
+    let attempt = 0;
+    let lastErr = null;
+    while (attempt < Math.max(1, retryAttempts)) {
+      try {
+        await fetchOnce(tick, info);
+        lastErr = null;
+        consecutiveErrors = 0;
+        break;
+      } catch (err) {
+        lastErr = err;
+        attempt++;
+        if (attempt >= Math.max(1, retryAttempts)) break;
+        const delay = retryBaseMs * 2 ** (attempt - 1);
+        await sleepImpl(delay);
+      }
+    }
+    if (lastErr) {
+      consecutiveErrors++;
+      if (typeof onError === "function") onError(lastErr);
+      if (consecutiveErrors >= Math.max(1, maxErrors)) break;
+      tick--;
+    } else {
+      if (onTick) onTick(tick, info);
+    }
     if (tick >= maxTicks || signal?.aborted) break;
     let wait = intervalMs;
     if (jitter) {
       wait = Math.round(intervalMs * (0.8 + Math.random() * 0.4));
     }
-    // Backwards clock jump: restart the interval from now instead of
-    // scheduling a huge delay.
     if (nowImpl() < deadline) {
       deadline = nowImpl();
     }
@@ -118,7 +138,6 @@ export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signa
         console.error(`[watch] overslept ${Math.round(oversleptMs / 1000)}s (system suspend?)`);
         oversleepReported = true;
       }
-      // Do not fire catch-up ticks; start the next interval from now.
       deadline = nowImpl() + wait;
     } else {
       oversleepReported = false;

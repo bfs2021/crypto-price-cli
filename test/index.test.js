@@ -302,6 +302,36 @@ test("watchPrices ticks until maxTicks", async () => {
   assert.equal(calls, 3);
   assert.deepEqual(ticks, [1, 2, 3]);
 });
+test("watchPrices retries transient failures with backoff", async () => {
+  let calls = 0;
+  const fetchOnce = async (t) => {
+    calls++;
+    if (calls <= 2) throw new Error("boom");
+  };
+  const sleeps = [];
+  const sleepImpl = async (ms) => { sleeps.push(ms); };
+  const nowImpl = () => 1000;
+  const ticks = [];
+  const onTick = (t) => ticks.push(t);
+  await watchPrices({ fetchOnce, onTick, intervalMs: 1000, maxTicks: 1, maxErrors: 3, retryBaseMs: 10, sleepImpl, nowImpl, jitter: false });
+  assert.deepEqual(ticks, [1]);
+  // 2 retries happened with backoff.
+  assert.ok(sleeps.some((ms) => ms >= 10), `no retry sleep: ${sleeps}`);
+});
+
+test("watchPrices stops after maxErrors consecutive failures", async () => {
+  const fetchOnce = async () => { throw new Error("boom"); };
+  const sleepImpl = async () => {};
+  const nowImpl = () => 1000;
+  const errors = [];
+  const ticks = [];
+  await watchPrices({ fetchOnce, onTick: (t) => ticks.push(t), intervalMs: 1000, maxTicks: 5, maxErrors: 2, retryAttempts: 1, retryBaseMs: 1, sleepImpl, nowImpl, jitter: false, onError: (e) => errors.push(e.message) });
+  assert.deepEqual(ticks, []);
+  assert.equal(errors.length, 2);
+  assert.match(errors[0], /boom/);
+});
+
+
 
 test("watchPrices stops on abort", async () => {
   const controller = new AbortController();
