@@ -127,7 +127,7 @@ try {
         if (!json) console.log(timestampHeader(new Date(), info.oversleptMs));
         const data = await showOnce();
         if (alertState.length) {
-          for (const m of evaluateAlerts(alertState, data, vs[0])) console.error(m);
+          for (const m of evaluateAlerts(alertState, data, vs)) console.error(m);
         }
       },
       intervalMs: watchSecs * 1000,

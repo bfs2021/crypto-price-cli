@@ -7,7 +7,7 @@ test("parses plain and per-coin specs", () => {
   assert.deepEqual(alerts, [
     { coin: "bitcoin", direction: "above", threshold: 100 },
     { coin: "ethereum", direction: "above", threshold: 100 },
-    { coin: "btc", direction: "below", threshold: 50 },
+    { coin: "bitcoin", direction: "below", threshold: 50 },
   ]);
 });
 
@@ -51,9 +51,34 @@ test("re-arms after hysteresis", () => {
 });
 
 test("routes per coin", () => {
-  const state = createAlertState(parseAlertSpecs(["btc:above=100", "eth:above=200"], ["bitcoin"]));
-  evaluateAlerts(state, { btc: { usd: 99 }, eth: { usd: 199 } });
-  const msgs = evaluateAlerts(state, { btc: { usd: 101 }, eth: { usd: 199 } });
+  const state = createAlertState(parseAlertSpecs(["btc:above=100", "eth:above=200"], ["bitcoin", "ethereum"]));
+  evaluateAlerts(state, { bitcoin: { usd: 99 }, ethereum: { usd: 199 } });
+  const msgs = evaluateAlerts(state, { bitcoin: { usd: 101 }, ethereum: { usd: 199 } });
   assert.equal(msgs.length, 1);
-  assert.match(msgs[0], /btc/);
+  assert.match(msgs[0], /bitcoin/);
+});
+
+test("evaluates every currency and names the one that crossed", () => {
+  const state = createAlertState(parseAlertSpecs(["above=100"], ["bitcoin"]));
+  evaluateAlerts(state, { bitcoin: { usd: 99, eur: 99 } }, ["usd", "eur"]);
+  const msgs = evaluateAlerts(state, { bitcoin: { usd: 99, eur: 101 } }, ["usd", "eur"]);
+  assert.equal(msgs.length, 1);
+  assert.match(msgs[0], /EUR/);
+});
+
+test("hysteresis is tracked per currency", () => {
+  const state = createAlertState(parseAlertSpecs(["above=100"], ["bitcoin"]));
+  const cc = ["usd", "eur"];
+  evaluateAlerts(state, { bitcoin: { usd: 99, eur: 99 } }, cc);
+  evaluateAlerts(state, { bitcoin: { usd: 101, eur: 99 } }, cc);
+  // usd fired and disarmed; eur still armed and below — no eur fire on flat
+  const msgs = evaluateAlerts(state, { bitcoin: { usd: 102, eur: 99 } }, cc);
+  assert.deepEqual(msgs, []);
+});
+
+test("per-coin spec for an unrequested coin fails fast", () => {
+  assert.throws(() => parseAlertSpecs(["doge:above=1"], ["bitcoin"]), /not in requested coins/);
+  // ticker aliases resolve: btc is fine when bitcoin is requested
+  const ok = parseAlertSpecs(["btc:above=1"], ["bitcoin"]);
+  assert.equal(ok[0].coin, "bitcoin");
 });
