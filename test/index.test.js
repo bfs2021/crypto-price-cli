@@ -377,3 +377,13 @@ test("fetchHistoricalPrice uses disk cache on second call", async () => {
   assert.deepEqual(await fetchHistoricalPrice("bitcoin", "2024-01-15", ["usd"], mock, opts), { usd: 42000 });
   assert.equal(calls, 1);
 });
+
+
+test("--help never echoes a configured API key", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const out = execFileSync(process.execPath, ["bin/crypto-price.js", "--help"], {
+    env: { ...process.env, COINGECKO_API_KEY: "SUPERSECRET123" },
+    encoding: "utf8",
+  });
+  assert.doesNotMatch(out, /SUPERSECRET123/);
+});
