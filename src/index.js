@@ -48,7 +48,7 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
       continue;
     }
     if (res.ok) return res;
-    lastError = new Error(`CoinGecko request failed: ${res.status} ${res.statusText}`);
+    lastError = new Error(scrubSecret(`CoinGecko request failed: ${res.status} ${res.statusText}`, options.apiKey));
     const retryable = res.status === 429 || (res.status >= 500 && res.status < 600);
     if (!retryable || attempt === retries) break;
     let waitMs = baseMs * 2 ** attempt;
@@ -164,6 +164,16 @@ function cacheKey(ids, vs) {
  * @param {number} [options.cacheTtlMs=60000]
  * @returns {Promise<Record<string, Record<string, number>>>}
  */
+/**
+ * Replace every occurrence of a configured secret with [REDACTED].
+ * No-op when the secret is empty/unset; never throws on non-string input.
+ */
+export function scrubSecret(text, secret) {
+  if (typeof text !== "string") return text;
+  if (typeof secret !== "string" || secret === "") return text;
+  return text.split(secret).join("[REDACTED]");
+}
+
 export async function fetchPrices(ids, vs = ["usd"], fetchImpl = fetch, options = {}) {
   if (!Array.isArray(ids) || ids.length === 0) {
     throw new Error("ids must be a non-empty array");
@@ -186,7 +196,7 @@ export async function fetchPrices(ids, vs = ["usd"], fetchImpl = fetch, options 
   if (options.apiKey) headers["x-cg-demo-api-key"] = options.apiKey;
   const res = await fetchWithRetry(fetchImpl, url, { headers }, options);
   if (!res.ok) {
-    throw new Error(`CoinGecko request failed: ${res.status} ${res.statusText}`);
+    throw new Error(scrubSecret(`CoinGecko request failed: ${res.status} ${res.statusText}`, options.apiKey));
   }
   const data = await res.json();
   if (!data || typeof data !== "object") {
@@ -338,7 +348,7 @@ export async function fetchHistoricalPrice(coin, dateStr, vs = ["usd"], fetchImp
   if (options && options.apiKey) headers["x-cg-demo-api-key"] = options.apiKey;
   const res = await fetchWithRetry(fetchImpl, url, { headers }, options || {});
   if (!res.ok) {
-    throw new Error(`CoinGecko request failed: ${res.status} ${res.statusText}`);
+    throw new Error(scrubSecret(`CoinGecko request failed: ${res.status} ${res.statusText}`, options && options.apiKey));
   }
   const data = await res.json();
   const prices = data && data.market_data && data.market_data.current_price;

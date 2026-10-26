@@ -387,3 +387,16 @@ test("--help never echoes a configured API key", async () => {
   });
   assert.doesNotMatch(out, /SUPERSECRET123/);
 });
+
+test("error messages scrub a leaked API key", async () => {
+  clearCache();
+  const key = "SECRETKEY123";
+  const fetchImpl = async () => ({
+    ok: false, status: 401, statusText: `bad key ${key} rejected`,
+    headers: { get: () => null }, json: async () => ({}),
+  });
+  const err = await fetchPrices(["bitcoin"], ["usd"], fetchImpl, { apiKey: key, cacheTtlMs: 0 }).catch((e) => e);
+  assert.ok(err instanceof Error);
+  assert.match(err.message, /\[REDACTED\]/);
+  assert.doesNotMatch(err.message, /SECRETKEY123/);
+});
