@@ -202,6 +202,10 @@ export async function fetchPrices(ids, vs = ["usd"], fetchImpl = fetch, options 
   if (!data || typeof data !== "object") {
     throw new Error("Unexpected response from CoinGecko");
   }
+  const missing = ids.filter((id) => data[id] === undefined);
+  if (missing.length > 0) {
+    throw new Error(`unknown coin id(s): ${missing.join(", ")}`);
+  }
   cache.set(key, { ts: Date.now(), data });
   return data;
 }

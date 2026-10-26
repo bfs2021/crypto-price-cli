@@ -400,3 +400,14 @@ test("error messages scrub a leaked API key", async () => {
   assert.match(err.message, /\[REDACTED\]/);
   assert.doesNotMatch(err.message, /SECRETKEY123/);
 });
+
+test("fetchPrices fails fast on unknown coin ids", async () => {
+  clearCache();
+  const fetchImpl = async () => ({
+    ok: true, headers: { get: () => null }, json: async () => ({ bitcoin: { usd: 1 } }),
+  });
+  const err = await fetchPrices(["bitcoin", "bitcon"], ["usd"], fetchImpl, { cacheTtlMs: 0 }).catch((e) => e);
+  assert.ok(err instanceof Error);
+  assert.match(err.message, /unknown coin/);
+  assert.match(err.message, /bitcon/);
+});
