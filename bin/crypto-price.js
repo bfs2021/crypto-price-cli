@@ -21,6 +21,9 @@ Options:
   --watch[=SECS]      Refresh continuously (default every 30s, Ctrl+C stops)
   --interval=SECS     Alias for --watch=SECS
   --count=N           Stop after N refreshes (for scripts/cron)
+  --max-errors=N      With --watch: stop after N consecutive failed refreshes
+                      (default: keep retrying). Exit code is 1 when the last
+                      refresh failed, 0 otherwise.
   --alert=above=PRICE / --alert=below=PRICE
                       Price alert evaluated on every watch tick (repeatable).
                       Prefix with COIN: to target one coin, e.g. btc:above=70000.
@@ -55,10 +58,12 @@ const watchArg = args.find((a) => a === "--watch" || a.startsWith("--watch=") ||
 const watchSecs = watchArg ? parsePositiveInt(watchArg.split("=")[1] || "30", 30) : 0;
 const countArg = args.find((a) => a.startsWith("--count="));
 const maxTicks = countArg ? parsePositiveInt(countArg.split("=")[1], 0) : 0;
+const maxErrorsArg = args.find((a) => a.startsWith("--max-errors="));
+const maxErrors = maxErrorsArg ? parsePositiveInt(maxErrorsArg.split("=")[1], 0) : 0;
 const alertArgs = args.filter((a) => a.startsWith("--alert=")).map((a) => a.slice("--alert=".length));
 const hysteresisArg = args.find((a) => a.startsWith("--alert-hysteresis="));
 const hysteresisPct = hysteresisArg ? Number(hysteresisArg.split("=")[1]) : 1;
-const filtered = args.filter((a) => a !== "--json" && !a.startsWith("--date=") && a !== "--watch" && !a.startsWith("--watch=") && a !== "--interval" && !a.startsWith("--interval=") && !a.startsWith("--count=") && !a.startsWith("--alert=") && !a.startsWith("--alert-hysteresis=") && a !== "--dump-cache");
+const filtered = args.filter((a) => a !== "--json" && !a.startsWith("--date=") && a !== "--watch" && !a.startsWith("--watch=") && a !== "--interval" && !a.startsWith("--interval=") && !a.startsWith("--count=") && !a.startsWith("--max-errors=") && !a.startsWith("--alert=") && !a.startsWith("--alert-hysteresis=") && a !== "--dump-cache");
 const coins = (filtered[0] || "bitcoin").split(",").map((s) => s.trim()).filter(Boolean);
 const vs = (filtered[1] || "usd").split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -122,7 +127,7 @@ try {
     const controller = new AbortController();
     process.once("SIGINT", () => controller.abort());
     const { watchPrices, timestampHeader } = await import("../src/index.js");
-    await watchPrices({
+    const summary = await watchPrices({
       fetchOnce: async (_tick, info = {}) => {
         if (!json) console.log(timestampHeader(new Date(), info.oversleptMs));
         const data = await showOnce();
@@ -133,7 +138,9 @@ try {
       intervalMs: watchSecs * 1000,
       signal: controller.signal,
       ...(maxTicks > 0 ? { maxTicks } : {}),
+      ...(maxErrors > 0 ? { maxErrors } : {}),
     });
+    if (summary.lastTickFailed) process.exitCode = 1;
   } else {
     await showOnce();
   }

@@ -302,22 +302,6 @@ test("watchPrices ticks until maxTicks", async () => {
   assert.equal(calls, 3);
   assert.deepEqual(ticks, [1, 2, 3]);
 });
-test("watchPrices retries transient failures with backoff", async () => {
-  let calls = 0;
-  const fetchOnce = async (t) => {
-    calls++;
-    if (calls <= 2) throw new Error("boom");
-  };
-  const sleeps = [];
-  const sleepImpl = async (ms) => { sleeps.push(ms); };
-  const nowImpl = () => 1000;
-  const ticks = [];
-  const onTick = (t) => ticks.push(t);
-  await watchPrices({ fetchOnce, onTick, intervalMs: 1000, maxTicks: 1, maxErrors: 3, retryBaseMs: 10, sleepImpl, nowImpl, jitter: false });
-  assert.deepEqual(ticks, [1]);
-  // 2 retries happened with backoff.
-  assert.ok(sleeps.some((ms) => ms >= 10), `no retry sleep: ${sleeps}`);
-});
 
 test("watchPrices stops after maxErrors consecutive failures", async () => {
   const fetchOnce = async () => { throw new Error("boom"); };
@@ -429,4 +413,103 @@ test("fetchWithRetry with jitter 0 is deterministic", async () => {
   const fetchImpl = async () => ({ ok: false, status: 502, statusText: "Bad Gateway", headers: { get: () => null } });
   await fetchWithRetry(fetchImpl, "u", {}, { retries: 2, retryBaseMs: 1000, retryJitter: 0, sleepImpl }).catch(() => {});
   assert.deepEqual(sleeps, [1000, 2000]);
+});
+
+
+test("watchPrices survives a failing tick and keeps watching", async () => {
+  let now = 0;
+  const ticks = [];
+  const errors = [];
+  const result = await watchPrices({
+    fetchOnce: async (t) => {
+      ticks.push(t);
+      if (t === 2) throw new Error("boom");
+    },
+    onError: (err, tick) => errors.push([err.message, tick]),
+    intervalMs: 1000,
+    maxTicks: 5,
+    jitter: false,
+    nowImpl: () => now,
+    sleepImpl: async (ms) => { now += ms; },
+  });
+  assert.deepEqual(ticks, [1, 2, 3, 4, 5]);
+  assert.deepEqual(errors, [["boom", 2]]);
+  assert.equal(result.lastTickFailed, false);
+});
+
+test("watchPrices reports a failed tick on stderr by default", async () => {
+  let now = 0;
+  const logged = [];
+  const originalError = console.error;
+  console.error = (line) => logged.push(String(line));
+  try {
+    await watchPrices({
+      fetchOnce: async (t) => { if (t === 1) throw new Error("boom"); },
+      intervalMs: 1000,
+      maxTicks: 2,
+      jitter: false,
+      nowImpl: () => now,
+      sleepImpl: async (ms) => { now += ms; },
+    });
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(logged, ["[watch] tick 1 failed: boom"]);
+});
+
+test("watchPrices aborts after maxErrors consecutive failures", async () => {
+  let now = 0;
+  let attempts = 0;
+  const result = await watchPrices({
+    fetchOnce: async () => { attempts++; throw new Error("feed down"); },
+    onError: () => {},
+    intervalMs: 1000,
+    maxTicks: 10,
+    maxErrors: 3,
+    jitter: false,
+    nowImpl: () => now,
+    sleepImpl: async (ms) => { now += ms; },
+  });
+  assert.equal(attempts, 3);
+  assert.equal(result.consecutiveFailures, 3);
+  assert.equal(result.lastTickFailed, true);
+});
+
+test("watchPrices resets the failure streak after a successful tick", async () => {
+  const plan = [false, true, false, true];
+  let now = 0;
+  let i = 0;
+  const result = await watchPrices({
+    fetchOnce: async (t) => {
+      const ok = plan[i++];
+      if (!ok) throw new Error(`bang ${t}`);
+    },
+    onError: () => {},
+    intervalMs: 1000,
+    maxTicks: plan.length,
+    maxErrors: 2,
+    jitter: false,
+    nowImpl: () => now,
+    sleepImpl: async (ms) => { now += ms; },
+  });
+  assert.equal(i, plan.length);
+  assert.equal(result.failures, 2);
+  assert.equal(result.lastTickFailed, false);
+});
+
+test("watchPrices marks the last tick as failed for the exit-code contract", async () => {
+  let now = 0;
+  const completed = [];
+  const result = await watchPrices({
+    fetchOnce: async (t) => { if (t === 3) throw new Error("last one"); },
+    onTick: (tick) => completed.push(tick),
+    onError: () => {},
+    intervalMs: 1000,
+    maxTicks: 3,
+    jitter: false,
+    nowImpl: () => now,
+    sleepImpl: async (ms) => { now += ms; },
+  });
+  assert.equal(result.lastTickFailed, true);
+  assert.deepEqual(completed, [1, 2]);
 });

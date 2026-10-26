@@ -85,17 +85,22 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
  * restarts from now instead of firing catch-up ticks.
  * sleepImpl and nowImpl are injectable so tests run instantly.
  */
-export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signal, maxTicks = Infinity, sleepImpl = sleep, nowImpl = Date.now, jitter = true, maxErrors = 3, retryAttempts = 2, retryBaseMs = 1000, onError }) {
+export async function watchPrices({ fetchOnce, onTick, onError, intervalMs = 30000, signal, maxTicks = Infinity, sleepImpl = sleep, nowImpl = Date.now, jitter = true, maxErrors = Infinity }) {
   if (typeof fetchOnce !== "function") {
     throw new Error("fetchOnce must be a function");
   }
   if (!(intervalMs > 0)) {
     throw new Error("intervalMs must be positive");
   }
+  if (!(maxErrors > 0)) {
+    throw new Error("maxErrors must be positive");
+  }
   let tick = 0;
+  let failures = 0;
+  let consecutiveFailures = 0;
+  let lastTickFailed = false;
   let deadline = nowImpl();
   let oversleepReported = false;
-  let consecutiveErrors = 0;
   while (!signal?.aborted && tick < maxTicks) {
     const now = nowImpl();
     const oversleptMs = Math.max(0, now - deadline);
@@ -104,29 +109,22 @@ export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signa
     }
     tick++;
     const info = { oversleptMs };
-    let attempt = 0;
-    let lastErr = null;
-    while (attempt < Math.max(1, retryAttempts)) {
-      try {
-        await fetchOnce(tick, info);
-        lastErr = null;
-        consecutiveErrors = 0;
-        break;
-      } catch (err) {
-        lastErr = err;
-        attempt++;
-        if (attempt >= Math.max(1, retryAttempts)) break;
-        const delay = retryBaseMs * 2 ** (attempt - 1);
-        await sleepImpl(delay);
-      }
-    }
-    if (lastErr) {
-      consecutiveErrors++;
-      if (typeof onError === "function") onError(lastErr);
-      if (consecutiveErrors >= Math.max(1, maxErrors)) break;
-      tick--;
-    } else {
+    try {
+      await fetchOnce(tick, info);
+      consecutiveFailures = 0;
+      lastTickFailed = false;
       if (onTick) onTick(tick, info);
+    } catch (err) {
+      failures++;
+      consecutiveFailures++;
+      lastTickFailed = true;
+      if (typeof onError === "function") {
+        onError(err, tick);
+      } else {
+        const reason = err && err.message ? err.message : String(err);
+        console.error(`[watch] tick ${tick} failed: ${reason}`);
+      }
+      if (consecutiveFailures >= maxErrors) break;
     }
     if (tick >= maxTicks || signal?.aborted) break;
     let wait = intervalMs;
@@ -149,6 +147,7 @@ export async function watchPrices({ fetchOnce, onTick, intervalMs = 30000, signa
     const delay = Math.max(0, Math.ceil(deadline - nowImpl()));
     await sleepImpl(delay);
   }
+  return { ticks: tick, failures, consecutiveFailures, lastTickFailed };
 }
 
 const cache = new Map();
