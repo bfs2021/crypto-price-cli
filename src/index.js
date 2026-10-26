@@ -36,6 +36,7 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
   const sleepImpl = options.sleepImpl || sleep;
   const maxRetryMs = typeof options.maxRetryMs === "number" ? options.maxRetryMs : 60000;
   const warn = typeof options.warn === "function" ? options.warn : null;
+  const jitter = typeof options.retryJitter === "number" ? options.retryJitter : 0;
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     let res;
@@ -44,7 +45,9 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
     } catch (err) {
       lastError = err;
       if (attempt === retries) break;
-      await sleepImpl(baseMs * 2 ** attempt);
+      let waitMs = baseMs * 2 ** attempt;
+      if (jitter > 0) waitMs = Math.round(waitMs * (1 + (Math.random() * 2 - 1) * jitter));
+      await sleepImpl(waitMs);
       continue;
     }
     if (res.ok) return res;
@@ -52,6 +55,7 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
     const retryable = res.status === 429 || (res.status >= 500 && res.status < 600);
     if (!retryable || attempt === retries) break;
     let waitMs = baseMs * 2 ** attempt;
+    if (jitter > 0) waitMs = Math.round(waitMs * (1 + (Math.random() * 2 - 1) * jitter));
     const retryAfter = res.headers && typeof res.headers.get === "function"
       ? res.headers.get("retry-after")
       : null;

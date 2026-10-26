@@ -411,3 +411,22 @@ test("fetchPrices fails fast on unknown coin ids", async () => {
   assert.match(err.message, /unknown coin/);
   assert.match(err.message, /bitcon/);
 });
+
+test("fetchWithRetry applies configurable jitter within bounds", async () => {
+  const sleeps = [];
+  const sleepImpl = async (ms) => { sleeps.push(ms); };
+  const fetchImpl = async () => ({ ok: false, status: 502, statusText: "Bad Gateway", headers: { get: () => null } });
+  const err = await fetchWithRetry(fetchImpl, "u", {}, { retries: 2, retryBaseMs: 1000, retryJitter: 0.5, sleepImpl }).catch((e) => e);
+  assert.ok(err instanceof Error);
+  // attempt 0 base 1000, attempt 1 base 2000; jitter 0.5 -> +/-50%
+  assert.ok(sleeps[0] >= 500 && sleeps[0] <= 1500, `out of band: ${sleeps[0]}`);
+  assert.ok(sleeps[1] >= 1000 && sleeps[1] <= 3000, `out of band: ${sleeps[1]}`);
+});
+
+test("fetchWithRetry with jitter 0 is deterministic", async () => {
+  const sleeps = [];
+  const sleepImpl = async (ms) => { sleeps.push(ms); };
+  const fetchImpl = async () => ({ ok: false, status: 502, statusText: "Bad Gateway", headers: { get: () => null } });
+  await fetchWithRetry(fetchImpl, "u", {}, { retries: 2, retryBaseMs: 1000, retryJitter: 0, sleepImpl }).catch(() => {});
+  assert.deepEqual(sleeps, [1000, 2000]);
+});
