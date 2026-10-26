@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { fetchPrices, formatPrices, formatJson, fetchHistoricalPrice, parsePositiveInt, listHistoryCache, defaultHistoryCacheDir } from "../src/index.js";
-import { parseAlertSpecs, createAlertState, evaluateAlerts } from "../src/alerts.js";
+import { parseAlertSpecs, createAlertState, evaluateAlerts, loadAlertState, saveAlertState, restoreAlertState, exportAlertState, defaultAlertStateFile } from "../src/alerts.js";
 
 const args = process.argv.slice(2);
 const apiKey = process.env.COINGECKO_API_KEY || process.env.CG_API_KEY || "";
@@ -32,6 +32,10 @@ Options:
                       Alerts are events and do NOT stop the watch loop.
   --alert-hysteresis=PCT
                       Re-arm distance after a trigger (default 1 percent)
+  --alert-state-ttl=HOURS
+                      Persist and restore alert state across runs. State older than
+                      HOURS (default: 24) is treated as fresh. 0 disables persistence.
+                      Stored at $XDG_CACHE_HOME/crypto-price-cli/alerts-state.json
   --dump-cache        List cached historical prices and exit
   --json              Machine-readable JSON output
   --compact           Compact JSON (no indentation)
@@ -68,7 +72,9 @@ if (timeoutSecs > 0) opts.timeoutMs = timeoutSecs * 1000;
 const alertArgs = args.filter((a) => a.startsWith("--alert=")).map((a) => a.slice("--alert=".length));
 const hysteresisArg = args.find((a) => a.startsWith("--alert-hysteresis="));
 const hysteresisPct = hysteresisArg ? Number(hysteresisArg.split("=")[1]) : 1;
-const filtered = args.filter((a) => a !== "--json" && !a.startsWith("--date=") && a !== "--watch" && !a.startsWith("--watch=") && a !== "--interval" && !a.startsWith("--interval=") && !a.startsWith("--count=") && !a.startsWith("--max-errors=") && !a.startsWith("--timeout=") && !a.startsWith("--alert=") && !a.startsWith("--alert-hysteresis=") && a !== "--dump-cache");
+const ttlArg = args.find((a) => a.startsWith("--alert-state-ttl="));
+const alertTtlHours = ttlArg ? Number(ttlArg.split("=")[1]) : 24;
+const filtered = args.filter((a) => a !== "--json" && !a.startsWith("--date=") && a !== "--watch" && !a.startsWith("--watch=") && a !== "--interval" && !a.startsWith("--interval=") && !a.startsWith("--count=") && !a.startsWith("--max-errors=") && !a.startsWith("--timeout=") && !a.startsWith("--alert=") && !a.startsWith("--alert-hysteresis=") && !a.startsWith("--alert-state-ttl=") && a !== "--dump-cache");
 const coins = (filtered[0] || "bitcoin").split(",").map((s) => s.trim()).filter(Boolean);
 const vs = (filtered[1] || "usd").split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -83,7 +89,16 @@ if (hysteresisArg && (!Number.isFinite(hysteresisPct) || hysteresisPct < 0)) {
   console.error(`error: invalid alert hysteresis: "${hysteresisArg.split("=")[1]}"`);
   process.exit(2);
 }
+if (ttlArg && (!Number.isFinite(alertTtlHours) || alertTtlHours < 0)) {
+  console.error(`error: invalid alert state ttl: "${ttlArg.split("=")[1]}"`);
+  process.exit(2);
+}
 const alertState = createAlertState(alerts, hysteresisPct);
+let persistedAlerts = {};
+if (alertState.length && alertTtlHours > 0) {
+  persistedAlerts = await loadAlertState(defaultAlertStateFile(), alertTtlHours);
+  restoreAlertState(alertState, persistedAlerts);
+}
 
 async function showOnce() {
   if (date) {
@@ -138,6 +153,14 @@ try {
         const data = await showOnce();
         if (alertState.length) {
           for (const m of evaluateAlerts(alertState, data, vs)) console.error(m);
+          if (alertTtlHours > 0) {
+            persistedAlerts = exportAlertState(alertState, Date.now(), persistedAlerts);
+            try {
+              await saveAlertState(defaultAlertStateFile(), persistedAlerts);
+            } catch (err) {
+              console.error(`[alerts] warning: failed to save alert state: ${err.message}`);
+            }
+          }
         }
       },
       intervalMs: watchSecs * 1000,
