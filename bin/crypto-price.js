@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { fetchPrices, formatPrices, formatJson, fetchHistoricalPrice, parsePositiveInt, listHistoryCache, defaultHistoryCacheDir } from "../src/index.js";
+import { parseAlertSpecs, createAlertState, evaluateAlerts } from "../src/alerts.js";
 
 const args = process.argv.slice(2);
 const apiKey = process.env.COINGECKO_API_KEY || process.env.CG_API_KEY || "";
@@ -20,6 +21,12 @@ Options:
   --watch[=SECS]      Refresh continuously (default every 30s, Ctrl+C stops)
   --interval=SECS     Alias for --watch=SECS
   --count=N           Stop after N refreshes (for scripts/cron)
+  --alert=above=PRICE / --alert=below=PRICE
+                      Price alert evaluated on every watch tick (repeatable).
+                      Prefix with COIN: to target one coin, e.g. btc:above=70000.
+                      Alerts are events and do NOT stop the watch loop.
+  --alert-hysteresis=PCT
+                      Re-arm distance after a trigger (default 1 percent)
   --dump-cache        List cached historical prices and exit
   --json              Machine-readable JSON output
   --compact           Compact JSON (no indentation)
@@ -34,6 +41,8 @@ Examples:
   crypto-price btc eth usd
   crypto-price bitcoin usd --date=2024-01-15
   crypto-price bitcoin usd --json
+  crypto-price bitcoin usd --watch=10 --alert=above=70000
+  crypto-price btc eth usd --watch --alert=btc:below=50000 --alert=eth:above=4000
 `);
   process.exit(0);
 }
@@ -46,9 +55,25 @@ const watchArg = args.find((a) => a === "--watch" || a.startsWith("--watch=") ||
 const watchSecs = watchArg ? parsePositiveInt(watchArg.split("=")[1] || "30", 30) : 0;
 const countArg = args.find((a) => a.startsWith("--count="));
 const maxTicks = countArg ? parsePositiveInt(countArg.split("=")[1], 0) : 0;
-const filtered = args.filter((a) => a !== "--json" && !a.startsWith("--date=") && a !== "--watch" && !a.startsWith("--watch=") && a !== "--interval" && !a.startsWith("--interval=") && !a.startsWith("--count=") && a !== "--dump-cache");
+const alertArgs = args.filter((a) => a.startsWith("--alert=")).map((a) => a.slice("--alert=".length));
+const hysteresisArg = args.find((a) => a.startsWith("--alert-hysteresis="));
+const hysteresisPct = hysteresisArg ? Number(hysteresisArg.split("=")[1]) : 1;
+const filtered = args.filter((a) => a !== "--json" && !a.startsWith("--date=") && a !== "--watch" && !a.startsWith("--watch=") && a !== "--interval" && !a.startsWith("--interval=") && !a.startsWith("--count=") && !a.startsWith("--alert=") && !a.startsWith("--alert-hysteresis=") && a !== "--dump-cache");
 const coins = (filtered[0] || "bitcoin").split(",").map((s) => s.trim()).filter(Boolean);
 const vs = (filtered[1] || "usd").split(",").map((s) => s.trim()).filter(Boolean);
+
+let alerts = [];
+try {
+  alerts = parseAlertSpecs(alertArgs, coins);
+} catch (err) {
+  console.error(`error: ${err.message}`);
+  process.exit(2);
+}
+if (hysteresisArg && (!Number.isFinite(hysteresisPct) || hysteresisPct < 0)) {
+  console.error(`error: invalid alert hysteresis: "${hysteresisArg.split("=")[1]}"`);
+  process.exit(2);
+}
+const alertState = createAlertState(alerts, hysteresisPct);
 
 async function showOnce() {
   if (date) {
@@ -63,9 +88,11 @@ async function showOnce() {
         console.log(`${coin} on ${date}: ` + vs.map((c) => `${c.toUpperCase()}: ${prices[c] ?? "n/a"}`).join("  "));
       }
     }
+    return data;
   } else {
     const data = await fetchPrices(coins, vs, fetch, opts);
     console.log(json ? formatJson(data, !compact) : formatPrices(data, vs));
+    return data;
   }
 }
 
@@ -96,9 +123,12 @@ try {
     process.once("SIGINT", () => controller.abort());
     const { watchPrices, timestampHeader } = await import("../src/index.js");
     await watchPrices({
-      fetchOnce: (_tick, info = {}) => {
+      fetchOnce: async (_tick, info = {}) => {
         if (!json) console.log(timestampHeader(new Date(), info.oversleptMs));
-        return showOnce();
+        const data = await showOnce();
+        if (alertState.length) {
+          for (const m of evaluateAlerts(alertState, data, vs[0])) console.error(m);
+        }
       },
       intervalMs: watchSecs * 1000,
       signal: controller.signal,
