@@ -207,11 +207,18 @@ export async function fetchPrices(ids, vs = ["usd"], fetchImpl = fetch, options 
   vs = vs.map((c) => String(c).trim().toLowerCase()).filter(Boolean);
   if (vs.length === 0) vs = ["usd"];
   const ttl = typeof options.cacheTtlMs === "number" ? options.cacheTtlMs : 60000;
+  const maxSize = typeof options.cacheMaxSize === "number" && Number.isFinite(options.cacheMaxSize)
+    ? Math.max(0, Math.floor(options.cacheMaxSize))
+    : 100;
   const key = cacheKey(ids, vs);
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < ttl) {
+    // Touch LRU.
+    cache.delete(key);
+    cache.set(key, cached);
     return cached.data;
   }
+  if (cached) cache.delete(key);
   const params = new URLSearchParams({
     ids: ids.join(","),
     vs_currencies: vs.join(","),
@@ -234,7 +241,10 @@ export async function fetchPrices(ids, vs = ["usd"], fetchImpl = fetch, options 
   if (missing.length > 0) {
     throw new Error(`unknown coin id(s): ${missing.join(", ")}`);
   }
-  cache.set(key, { ts: Date.now(), data });
+  if (maxSize > 0) {
+    cache.set(key, { ts: Date.now(), data });
+    while (cache.size > maxSize) cache.delete(cache.keys().next().value);
+  }
   return data;
 }
 

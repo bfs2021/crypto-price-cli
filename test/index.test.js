@@ -566,3 +566,20 @@ test("writeHistoryCache refuses to write through a symlinked cache dir", async (
     await fs.rm(realDir, { recursive: true, force: true });
   }
 });
+
+test("fetchPrices evicts LRU at configured size", async () => {
+  let calls = 0;
+  const fetchImpl = async (url) => {
+    calls++;
+    const id = new URL(url).searchParams.get("ids");
+    return { ok: true, status: 200, statusText: "OK", json: async () => ({ [id]: { usd: 1 } }), text: async () => JSON.stringify({ [id]: { usd: 1 } }) };
+  };
+  clearCache();
+  const opts = { cacheMaxSize: 2, cacheTtlMs: 60000, maxResponseBytes: 1024 * 1024 };
+  await fetchPrices(["bitcoin"], ["usd"], fetchImpl, opts);
+  await fetchPrices(["ethereum"], ["usd"], fetchImpl, opts);
+  await fetchPrices(["bitcoin"], ["usd"], fetchImpl, opts);
+  await fetchPrices(["solana"], ["usd"], fetchImpl, opts);
+  await fetchPrices(["ethereum"], ["usd"], fetchImpl, opts);
+  assert.equal(calls, 4);
+});
