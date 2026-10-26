@@ -37,19 +37,41 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
   const maxRetryMs = typeof options.maxRetryMs === "number" ? options.maxRetryMs : 60000;
   const warn = typeof options.warn === "function" ? options.warn : null;
   const jitter = typeof options.retryJitter === "number" ? options.retryJitter : 0;
+  const timeoutMs = typeof options.timeoutMs === "number" && options.timeoutMs > 0 ? options.timeoutMs : 0;
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     let res;
+    let timer = null;
+    let timedOut = false;
+    const fetchInit = { ...(init || {}) };
+    let controller = null;
+    if (timeoutMs > 0) {
+      controller = new AbortController();
+      fetchInit.signal = controller.signal;
+    }
     try {
-      res = await fetchImpl(url, init);
+      let fetchPromise = fetchImpl(url, fetchInit);
+      if (timeoutMs > 0) {
+        fetchPromise = Promise.race([
+          fetchPromise,
+          new Promise((_, reject) => {
+            timer = setTimeout(() => { timedOut = true; if (controller) controller.abort(); reject(new Error("__timeout__")); }, timeoutMs);
+          }),
+        ]);
+      }
+      res = await fetchPromise;
     } catch (err) {
-      lastError = err;
+      if (timer) clearTimeout(timer);
+      lastError = timedOut
+        ? new Error(`request timed out after ${timeoutMs}ms`)
+        : err;
       if (attempt === retries) break;
       let waitMs = baseMs * 2 ** attempt;
       if (jitter > 0) waitMs = Math.round(waitMs * (1 + (Math.random() * 2 - 1) * jitter));
       await sleepImpl(waitMs);
       continue;
     }
+    if (timer) clearTimeout(timer);
     if (res.ok) return res;
     lastError = new Error(scrubSecret(`CoinGecko request failed: ${res.status} ${res.statusText}`, options.apiKey));
     const retryable = res.status === 429 || (res.status >= 500 && res.status < 600);

@@ -513,3 +513,12 @@ test("watchPrices marks the last tick as failed for the exit-code contract", asy
   assert.equal(result.lastTickFailed, true);
   assert.deepEqual(completed, [1, 2]);
 });
+
+
+test("fetchWithRetry aborts on timeout", async () => {
+  const fetchImpl = () => new Promise(() => {});
+  await assert.rejects(
+    () => fetchWithRetry(fetchImpl, "https://x", {}, { retries: 0, timeoutMs: 10, sleepImpl: () => Promise.resolve() }),
+    /timed out|abort/i
+  );
+});

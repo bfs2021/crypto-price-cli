@@ -4,7 +4,8 @@ import { parseAlertSpecs, createAlertState, evaluateAlerts } from "../src/alerts
 
 const args = process.argv.slice(2);
 const apiKey = process.env.COINGECKO_API_KEY || process.env.CG_API_KEY || "";
-const opts = apiKey ? { apiKey } : {};
+const opts = {};
+if (apiKey) opts.apiKey = apiKey;
 
 if (args.includes("-h") || args.includes("--help") || args.includes("help")) {
   console.log(`crypto-price — fetch cryptocurrency prices from CoinGecko (no API key required)
@@ -21,6 +22,7 @@ Options:
   --watch[=SECS]      Refresh continuously (default every 30s, Ctrl+C stops)
   --interval=SECS     Alias for --watch=SECS
   --count=N           Stop after N refreshes (for scripts/cron)
+  --timeout=SECS      Abort a request that takes longer than SECS (default: none)
   --max-errors=N      With --watch: stop after N consecutive failed refreshes
                       (default: keep retrying). Exit code is 1 when the last
                       refresh failed, 0 otherwise.
@@ -60,10 +62,13 @@ const countArg = args.find((a) => a.startsWith("--count="));
 const maxTicks = countArg ? parsePositiveInt(countArg.split("=")[1], 0) : 0;
 const maxErrorsArg = args.find((a) => a.startsWith("--max-errors="));
 const maxErrors = maxErrorsArg ? parsePositiveInt(maxErrorsArg.split("=")[1], 0) : 0;
+const timeoutArg = args.find((a) => a.startsWith("--timeout="));
+const timeoutSecs = timeoutArg ? parsePositiveInt(timeoutArg.split("=")[1], 0) : 0;
+if (timeoutSecs > 0) opts.timeoutMs = timeoutSecs * 1000;
 const alertArgs = args.filter((a) => a.startsWith("--alert=")).map((a) => a.slice("--alert=".length));
 const hysteresisArg = args.find((a) => a.startsWith("--alert-hysteresis="));
 const hysteresisPct = hysteresisArg ? Number(hysteresisArg.split("=")[1]) : 1;
-const filtered = args.filter((a) => a !== "--json" && !a.startsWith("--date=") && a !== "--watch" && !a.startsWith("--watch=") && a !== "--interval" && !a.startsWith("--interval=") && !a.startsWith("--count=") && !a.startsWith("--max-errors=") && !a.startsWith("--alert=") && !a.startsWith("--alert-hysteresis=") && a !== "--dump-cache");
+const filtered = args.filter((a) => a !== "--json" && !a.startsWith("--date=") && a !== "--watch" && !a.startsWith("--watch=") && a !== "--interval" && !a.startsWith("--interval=") && !a.startsWith("--count=") && !a.startsWith("--max-errors=") && !a.startsWith("--timeout=") && !a.startsWith("--alert=") && !a.startsWith("--alert-hysteresis=") && a !== "--dump-cache");
 const coins = (filtered[0] || "bitcoin").split(",").map((s) => s.trim()).filter(Boolean);
 const vs = (filtered[1] || "usd").split(",").map((s) => s.trim()).filter(Boolean);
 
