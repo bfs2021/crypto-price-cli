@@ -289,8 +289,10 @@ export function validateFlags({ watchSecs = 0, date = null } = {}) {
 }
 
 /**
- * Disk cache for historical prices (immutable, so no TTL). Files live at
- * <dir>/<coin>-<YYYY-MM-DD>.json. Returns null on miss or corrupt entry.
+ * Disk cache for historical prices. Past dates are immutable, but today's
+ * entry keeps changing, so fetchHistoricalPrice never trusts it on read.
+ * Files live at <dir>/<coin>-<YYYY-MM-DD>.json. Returns null on miss or
+ * corrupt entry.
  */
 export function historyCacheFile(dir, coin, dateStr) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || ""))) throw new Error("dateStr must be YYYY-MM-DD");
@@ -329,6 +331,15 @@ export function defaultHistoryCacheDir() {
   const home = process.env.HOME || process.env.USERPROFILE || ".";
   const base = process.env.XDG_CACHE_HOME || `${home}/.cache`;
   return `${base}/crypto-price-cli/history`;
+}
+
+/**
+ * CoinGecko history buckets are UTC days, so "today" is the UTC date.
+ * @param {string} dateStr - date as YYYY-MM-DD
+ * @param {Date} [now=new Date()]
+ */
+export function isTodayUTC(dateStr, now = new Date()) {
+  return dateStr === now.toISOString().slice(0, 10);
 }
 
 /**
@@ -386,10 +397,12 @@ export async function fetchHistoricalPrice(coin, dateStr, vs = ["usd"], fetchImp
   }
   const apiDate = `${m[3]}-${m[2]}-${m[1]}`;
   const cacheDir = options && options.cacheDir !== undefined ? options.cacheDir : defaultHistoryCacheDir();
+  const now = options && options.now instanceof Date ? options.now : new Date();
   let union = null;
   if (cacheDir) {
     union = await readHistoryCache(cacheDir, coin, dateStr);
-    if (union && vs.every((c) => union[c] !== undefined)) {
+    // Today's entry is still moving, so a full cache hit must not short-circuit.
+    if (union && !isTodayUTC(dateStr, now) && vs.every((c) => union[c] !== undefined)) {
       const out = {};
       for (const c of vs) out[c] = union[c];
       return out;

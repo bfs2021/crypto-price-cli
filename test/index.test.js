@@ -367,6 +367,24 @@ test("fetchHistoricalPrice uses disk cache on second call", async () => {
   assert.equal(calls, 1);
 });
 
+test("fetchHistoricalPrice re-fetches today instead of trusting the disk cache", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "crypto-price-today-"));
+  const now = new Date("2026-10-27T12:00:00Z");
+  let calls = 0;
+  const mock = async () => {
+    calls++;
+    return {
+      ok: true, status: 200, statusText: "OK",
+      json: async () => ({ market_data: { current_price: { usd: calls === 1 ? 42000 : 43000 } } }),
+    };
+  };
+  const opts = { cacheDir: dir, now };
+  assert.deepEqual(await fetchHistoricalPrice("bitcoin", "2026-10-27", ["usd"], mock, opts), { usd: 42000 });
+  assert.deepEqual(await fetchHistoricalPrice("bitcoin", "2026-10-27", ["usd"], mock, opts), { usd: 43000 });
+  assert.equal(calls, 2);
+  assert.deepEqual(await readHistoryCache(dir, "bitcoin", "2026-10-27"), { usd: 43000 });
+});
+
 
 test("--help never echoes a configured API key", async () => {
   const { execFileSync } = await import("node:child_process");
