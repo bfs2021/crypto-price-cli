@@ -46,3 +46,18 @@ test("--help documents --jsonl", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /--jsonl\s+One compact JSON object per line/i);
 });
+
+test("--jsonl forwards coin and currency args to the API URL", () => {
+  const preload = `data:text/javascript,${encodeURIComponent(`globalThis.fetch = async (url) => {
+    const s = String(url);
+    if (!s.includes("ids=bitcoin") || !s.includes("vs_currencies=usd")) throw new Error("unexpected URL: " + s);
+    return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify({ bitcoin: { usd: 1 } }) };
+  };`)}`;
+  const result = spawnSync(
+    process.execPath,
+    ["--import", preload, cliPath, "bitcoin", "usd", "--jsonl"],
+    { encoding: "utf8", timeout: 10000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '{"bitcoin":{"usd":1}}\n');
+});
