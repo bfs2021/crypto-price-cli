@@ -4,7 +4,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const cliPath = fileURLToPath(new URL("../bin/crypto-price.js", import.meta.url));
-const mockFetchPath = fileURLToPath(new URL("../mock-fetch.cjs", import.meta.url));
+const mockFetchPath = fileURLToPath(new URL("./mock-fetch.cjs", import.meta.url));
 
 function runCli(...args) {
   return spawnSync(
