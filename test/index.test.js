@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fetchPrices, formatPrices, formatJson, clearCache, fetchHistoricalPrice, resolveCoin, fetchWithRetry, watchPrices, timestampHeader, validateFlags, parsePositiveInt, readHistoryCache, writeHistoryCache, listHistoryCache } from "../src/index.js";
+import { fetchPrices, formatPrices, formatJson, clearCache, fetchHistoricalPrice, resolveCoin, fetchWithRetry, watchPrices, timestampHeader, validateFlags, parsePositiveInt, readHistoryCache, writeHistoryCache, listHistoryCache, historyCacheFile } from "../src/index.js";
 
 test("watchPrices respects jitter=false", async () => {
   const sleeps = [];
@@ -154,6 +154,11 @@ test("listHistoryCache enumerates stored entries", async () => {
   assert.deepEqual(await listHistoryCache(dir), [
     { coin: "bitcoin", date: "2024-01-15", currencies: ["eur", "usd"] },
   ]);
+});
+
+test("historyCacheFile rejects bad date", () => {
+  assert.throws(() => historyCacheFile("/tmp", "bitcoin", "2026/10/20"), /dateStr must be/);
+  assert.throws(() => historyCacheFile("/tmp", "bitcoin", "../../etc"), /dateStr must be/);
 });
 
 test("fetchHistoricalPrice merges vs currencies in disk cache", async () => {

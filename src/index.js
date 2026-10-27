@@ -293,6 +293,7 @@ export function validateFlags({ watchSecs = 0, date = null } = {}) {
  * <dir>/<coin>-<YYYY-MM-DD>.json. Returns null on miss or corrupt entry.
  */
 export function historyCacheFile(dir, coin, dateStr) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || ""))) throw new Error("dateStr must be YYYY-MM-DD");
   const safeCoin = String(coin).replace(/[^a-z0-9-]/gi, "_").toLowerCase();
   return `${dir}/${safeCoin}-${dateStr}.json`;
 }
