@@ -31,12 +31,22 @@ function sleep(ms) {
  * exponential backoff (baseMs * 2^attempt). `sleepImpl` is injectable for tests.
  */
 export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
-  const retries = typeof options.retries === "number" ? options.retries : 3;
-  const baseMs = typeof options.retryBaseMs === "number" ? options.retryBaseMs : 1000;
+  const MAX_RETRIES = 10;
+  const MAX_WAIT_MS = 60000;
+  const maxRetryMs = Number.isFinite(options.maxRetryMs) && options.maxRetryMs > 0
+    ? options.maxRetryMs
+    : MAX_WAIT_MS;
+  // NaN/nullish retries used to skip the loop body and throw `undefined`; a
+  // finite huge value is clamped so a rate-limited API cannot trap us forever.
+  const retries = typeof options.retries === "number"
+    ? (Number.isNaN(options.retries) ? 0 : Math.min(MAX_RETRIES, Math.max(0, Math.floor(options.retries))))
+    : 3;
+  const baseMs = Number.isFinite(options.retryBaseMs) && options.retryBaseMs > 0
+    ? Math.min(options.retryBaseMs, maxRetryMs)
+    : 1000;
   const sleepImpl = options.sleepImpl || sleep;
-  const maxRetryMs = typeof options.maxRetryMs === "number" ? options.maxRetryMs : 60000;
   const warn = typeof options.warn === "function" ? options.warn : null;
-  const jitter = typeof options.retryJitter === "number" ? options.retryJitter : 0;
+  const jitter = Number.isFinite(options.retryJitter) ? Math.min(1, Math.max(0, options.retryJitter)) : 0;
   const timeoutMs = typeof options.timeoutMs === "number" && options.timeoutMs > 0 ? options.timeoutMs : 0;
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -66,8 +76,8 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
         ? new Error(`request timed out after ${timeoutMs}ms`)
         : err;
       if (attempt === retries) break;
-      let waitMs = baseMs * 2 ** attempt;
-      if (jitter > 0) waitMs = Math.round(waitMs * (1 + (Math.random() * 2 - 1) * jitter));
+      let waitMs = Math.min(baseMs * 2 ** attempt, maxRetryMs);
+      if (jitter > 0) waitMs = Math.min(maxRetryMs, Math.round(waitMs * (1 + (Math.random() * 2 - 1) * jitter)));
       await sleepImpl(waitMs);
       continue;
     }
@@ -76,8 +86,8 @@ export async function fetchWithRetry(fetchImpl, url, init, options = {}) {
     lastError = new Error(scrubSecret(`CoinGecko request failed: ${res.status} ${res.statusText}`, options.apiKey));
     const retryable = res.status === 429 || (res.status >= 500 && res.status < 600);
     if (!retryable || attempt === retries) break;
-    let waitMs = baseMs * 2 ** attempt;
-    if (jitter > 0) waitMs = Math.round(waitMs * (1 + (Math.random() * 2 - 1) * jitter));
+    let waitMs = Math.min(baseMs * 2 ** attempt, maxRetryMs);
+    if (jitter > 0) waitMs = Math.min(maxRetryMs, Math.round(waitMs * (1 + (Math.random() * 2 - 1) * jitter)));
     const retryAfter = res.headers && typeof res.headers.get === "function"
       ? res.headers.get("retry-after")
       : null;

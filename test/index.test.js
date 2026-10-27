@@ -294,6 +294,59 @@ test("fetchWithRetry does not retry 400", async () => {
   assert.equal(calls, 1);
 });
 
+test("fetchWithRetry treats NaN retries as zero and throws the real error", async () => {
+  const boom = new Error("down");
+  let calls = 0;
+  const mock = async () => { calls++; throw boom; };
+  await assert.rejects(
+    () => fetchWithRetry(mock, "https://x", {}, { retries: NaN, sleepImpl: () => Promise.resolve() }),
+    (err) => err instanceof Error && err.message === "down"
+  );
+  assert.equal(calls, 1);
+});
+
+test("fetchWithRetry treats negative retries as zero", async () => {
+  const boom = new Error("down");
+  let calls = 0;
+  const mock = async () => { calls++; throw boom; };
+  await assert.rejects(
+    () => fetchWithRetry(mock, "https://x", {}, { retries: -1, sleepImpl: () => Promise.resolve() }),
+    (err) => err instanceof Error && err.message === "down"
+  );
+  assert.equal(calls, 1);
+});
+
+test("fetchWithRetry clamps huge retries and caps backoff at 60 s", async () => {
+  let calls = 0;
+  const waits = [];
+  const mock = async () => {
+    calls++;
+    return { ok: false, status: 429, statusText: "Too Many Requests", headers: { get: () => null } };
+  };
+  await assert.rejects(
+    () => fetchWithRetry(mock, "https://x", {}, { retries: 1e9, retryBaseMs: 1000, sleepImpl: (ms) => { waits.push(ms); return Promise.resolve(); } }),
+    /429/
+  );
+  assert.equal(calls, 11);
+  assert.equal(waits.length, 10);
+  assert.ok(waits.every((ms) => ms <= 60000), `waits exceeded the cap: ${waits.join(",")}`);
+  assert.equal(waits.at(-1), 60000);
+});
+
+test("fetchWithRetry falls back to the default base for a non-finite base", async () => {
+  let calls = 0;
+  const waits = [];
+  const mock = async () => {
+    calls++;
+    return calls === 1
+      ? { ok: false, status: 429, statusText: "Too Many Requests", headers: { get: () => null } }
+      : { ok: true, status: 200, statusText: "OK" };
+  };
+  const res = await fetchWithRetry(mock, "https://x", {}, { retries: 1, retryBaseMs: Infinity, sleepImpl: (ms) => { waits.push(ms); return Promise.resolve(); } });
+  assert.ok(res.ok);
+  assert.deepEqual(waits, [1000]);
+});
+
 test("watchPrices ticks until maxTicks", async () => {
   let calls = 0;
   const ticks = [];
