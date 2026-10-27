@@ -18,7 +18,12 @@ crypto-price bitcoin usd --date=2024-01-15
 crypto-price btc,eth usd --date=2024-01-15
 # Machine-readable output
 crypto-price bitcoin usd --json
+# One compact JSON object per line, including each --watch tick
+crypto-price bitcoin usd --jsonl --watch=10 --count=6
 ```
+
+`--jsonl` enables JSON output in compact form and writes each result on one line. It works with
+`--watch` and `--count` for line-oriented pipelines.
 
 ### Watching with `--watch`
 

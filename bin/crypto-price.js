@@ -38,6 +38,8 @@ Options:
                       Stored at $XDG_CACHE_HOME/crypto-price-cli/alerts-state.json
   --dump-cache        List cached historical prices and exit
   --json              Machine-readable JSON output
+  --jsonl             One compact JSON object per line
+                      (works with --watch and --count)
   --compact           Compact JSON (no indentation)
   -h, --help          Show this help
 
@@ -57,7 +59,9 @@ Examples:
 }
 
 const json = args.includes("--json");
-const compact = args.includes("--compact");
+const jsonl = args.includes("--jsonl");
+const compact = args.includes("--compact") || jsonl;
+const jsonOutput = json || jsonl;
 const dateArg = args.find((a) => a.startsWith("--date="));
 const date = dateArg ? dateArg.slice("--date=".length) : null;
 const watchArg = args.find((a) => a === "--watch" || a.startsWith("--watch=") || a === "--interval" || a.startsWith("--interval="));
@@ -87,7 +91,7 @@ const hysteresisArg = args.find((a) => a.startsWith("--alert-hysteresis="));
 const hysteresisPct = hysteresisArg ? Number(hysteresisArg.split("=")[1]) : 1;
 const ttlArg = args.find((a) => a.startsWith("--alert-state-ttl="));
 const alertTtlHours = ttlArg ? Number(ttlArg.split("=")[1]) : 24;
-const filtered = args.filter((a) => a !== "--json" && !a.startsWith("--date=") && a !== "--watch" && !a.startsWith("--watch=") && a !== "--interval" && !a.startsWith("--interval=") && !a.startsWith("--count=") && !a.startsWith("--max-errors=") && !a.startsWith("--timeout=") && !a.startsWith("--alert=") && !a.startsWith("--alert-hysteresis=") && !a.startsWith("--alert-state-ttl=") && a !== "--dump-cache");
+const filtered = args.filter((a) => a !== "--json" && a !== "--jsonl" && a !== "--compact" && !a.startsWith("--date=") && a !== "--watch" && !a.startsWith("--watch=") && a !== "--interval" && !a.startsWith("--interval=") && !a.startsWith("--count=") && !a.startsWith("--max-errors=") && !a.startsWith("--timeout=") && !a.startsWith("--alert=") && !a.startsWith("--alert-hysteresis=") && !a.startsWith("--alert-state-ttl=") && a !== "--dump-cache");
 const coins = (filtered[0] || "bitcoin").split(",").map((s) => s.trim()).filter(Boolean);
 const vs = (filtered[1] || "usd").split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -119,7 +123,7 @@ async function showOnce() {
     for (const coin of coins) {
       data[coin] = await fetchHistoricalPrice(coin, date, vs, fetch, opts);
     }
-    if (json) {
+    if (jsonOutput) {
       console.log(formatJson(data, !compact));
     } else {
       for (const [coin, prices] of Object.entries(data)) {
@@ -129,7 +133,7 @@ async function showOnce() {
     return data;
   } else {
     const data = await fetchPrices(coins, vs, fetch, opts);
-    console.log(json ? formatJson(data, !compact) : formatPrices(data, vs));
+    console.log(jsonOutput ? formatJson(data, !compact) : formatPrices(data, vs));
     return data;
   }
 }
@@ -137,7 +141,7 @@ async function showOnce() {
 try {
   if (args.includes("--dump-cache")) {
     const entries = await listHistoryCache(defaultHistoryCacheDir());
-    if (json) {
+    if (jsonOutput) {
       console.log(formatJson(entries, !compact));
     } else if (entries.length === 0) {
       console.log("history cache is empty");
@@ -162,7 +166,7 @@ try {
     const { watchPrices, timestampHeader } = await import("../src/index.js");
     const summary = await watchPrices({
       fetchOnce: async (_tick, info = {}) => {
-        if (!json) console.log(timestampHeader(new Date(), info.oversleptMs));
+        if (!jsonOutput) console.log(timestampHeader(new Date(), info.oversleptMs));
         const data = await showOnce();
         if (alertState.length) {
           for (const m of evaluateAlerts(alertState, data, vs)) console.error(m);
